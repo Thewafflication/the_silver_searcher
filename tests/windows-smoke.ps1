@@ -24,6 +24,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ag exits 1 when it finds no match, and this script deliberately runs cases
+# that find nothing. PowerShell 7.4 turns a non-zero native exit code into a
+# terminating error while ErrorActionPreference is Stop, so turn that off and
+# let the explicit $LASTEXITCODE checks below decide what counts as a failure.
+$PSNativeCommandUseErrorActionPreference = $false
+
 $script:failures = @()
 
 function Test-Case {
@@ -132,7 +139,8 @@ try {
     }
 
     Test-Case 'searches piped standard input' {
-        $output = & cmd.exe /c "type alpha.txt | `"$ag`" needle" 2>&1 | Out-String
+        $source = Join-Path $root 'alpha.txt'
+        $output = & cmd.exe /c "type `"$source`" | `"$ag`" needle" 2>&1 | Out-String
         Assert-Match $output 'needle here' 'ag did not search its piped standard input.'
     }
 

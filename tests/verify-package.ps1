@@ -30,6 +30,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# wpm reports failure through its exit code, which this script checks
+# explicitly. PowerShell 7.4 would otherwise turn any non-zero exit into a
+# terminating error before the check runs, losing the specific message.
+$PSNativeCommandUseErrorActionPreference = $false
+
 $environmentKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
 
 function Get-RawPath {
