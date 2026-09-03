@@ -10,6 +10,13 @@
 #ifndef AG_WIN32_H
 #define AG_WIN32_H
 
+/*
+ * <wchar.h> comes first so WCRT establishes time_t and wint_t before TinyCC's
+ * WinAPI headers can define their own. This header is force-included ahead of
+ * every translation unit, which makes it the earliest place to do that.
+ */
+#include <wchar.h>
+
 #include <ctype.h>
 #include <errno.h>
 #include <stddef.h>

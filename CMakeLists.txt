@@ -162,11 +162,15 @@ target_compile_definitions(ag PRIVATE
   WCRT_POSIX=1
 )
 
-# -include wchar.h lets WCRT establish time_t and wint_t before TinyCC's WinAPI
-# headers see them; ag_win32.h then supplies the POSIX surface WCRT lacks to
-# every ag translation unit, so ag's own sources stay unmodified.
+# ag_win32.h supplies the POSIX surface WCRT lacks to every ag translation
+# unit, so ag's own sources stay unmodified. It includes <wchar.h> first, which
+# is what lets WCRT establish time_t and wint_t before TinyCC's WinAPI headers
+# see them.
+#
+# This must stay a single -include: CMake removes duplicate tokens from
+# COMPILE_OPTIONS, so a second "-include" would be dropped and its path handed
+# to TinyCC as a stray input file.
 target_compile_options(ag PRIVATE
-  -include wchar.h
   -include "${CMAKE_SOURCE_DIR}/src/win32/ag_win32.h"
 )
 
