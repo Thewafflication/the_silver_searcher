@@ -36,14 +36,49 @@ typedef ptrdiff_t ssize_t;
 #endif
 
 /*
- * WCRT's <errno.h> covers the C standard set. ag also tests for ENOTDIR, whose
- * value here matches Microsoft's <errno.h> so a mixed link keeps one meaning.
+ * Error codes this layer reports. Which of these WCRT's own <errno.h> carries
+ * has changed between releases, so each is defined only if it is absent, using
+ * the value from Microsoft's <errno.h> - the same values WCRT uses - so the
+ * two always agree about what a code means.
  */
-#ifndef ENOTDIR
-#define ENOTDIR 20
+#ifndef EPERM
+#define EPERM 1
+#endif
+#ifndef ENOENT
+#define ENOENT 2
+#endif
+#ifndef EIO
+#define EIO 5
+#endif
+#ifndef EBADF
+#define EBADF 9
+#endif
+#ifndef EAGAIN
+#define EAGAIN 11
+#endif
+#ifndef ENOMEM
+#define ENOMEM 12
+#endif
+#ifndef EACCES
+#define EACCES 13
 #endif
 #ifndef EBUSY
 #define EBUSY 16
+#endif
+#ifndef EEXIST
+#define EEXIST 17
+#endif
+#ifndef ENOTDIR
+#define ENOTDIR 20
+#endif
+#ifndef EINVAL
+#define EINVAL 22
+#endif
+#ifndef EMFILE
+#define EMFILE 24
+#endif
+#ifndef ENOSYS
+#define ENOSYS 40
 #endif
 
 /* WCRT's <sys/stat.h> stops at S_ISDIR and S_ISREG. */

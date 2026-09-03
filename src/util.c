@@ -689,7 +689,7 @@ int vasprintf(char **ret, const char *fmt, va_list args) {
 #ifdef __va_copy
     /* non-standard macro, but usually exists */
     __va_copy(args2, args);
-#elif va_copy
+#elif defined(va_copy)
     /* C99 macro. We compile with -std=c89 but you never know */
     va_copy(args2, args);
 #else
