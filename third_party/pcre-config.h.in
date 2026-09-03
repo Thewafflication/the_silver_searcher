@@ -1,0 +1,58 @@
+/*
+ * Hand-maintained PCRE 8.45 configuration for the Silver Searcher's
+ * TinyCC + WCRT Windows build.
+ *
+ * PCRE's own configure/CMake probes assume an autotools or MSVC/GCC host and
+ * cannot run under this toolchain, so the small set of values PCRE actually
+ * reads is fixed here. Keep this file in step with third_party/pcre when the
+ * pinned submodule commit changes.
+ */
+
+#ifndef AG_PCRE_CONFIG_H
+#define AG_PCRE_CONFIG_H
+
+/* Headers WCRT provides for the 8-bit library. */
+#define HAVE_DIRENT_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_LIMITS_H 1
+#define HAVE_STDINT_H 1
+#define HAVE_STRING_H 1
+#define HAVE_SYS_STAT_H 1
+#define HAVE_SYS_TYPES_H 1
+#define HAVE_UNISTD_H 1
+#define HAVE_WINDOWS_H 1
+
+/* Library facilities WCRT provides. */
+#define HAVE_MEMMOVE 1
+#define HAVE_STRERROR 1
+#define HAVE_STRTOLL 1
+#define HAVE_LONG_LONG 1
+#define HAVE_UNSIGNED_LONG_LONG 1
+
+/* Link the 8-bit library into ag.exe; no import/export decoration. */
+#define PCRE_STATIC 1
+#define SUPPORT_PCRE8 1
+
+/* ag compiles patterns that may use \p{...} and UTF-8 subject text. */
+#define SUPPORT_UTF 1
+#define SUPPORT_UCP 1
+
+/*
+ * Match on the heap rather than the C stack. ag runs pcre_exec() on worker
+ * threads with a 1 MiB default stack, where a pathological pattern can
+ * otherwise exhaust it before MATCH_LIMIT_RECURSION is reached.
+ */
+#define NO_RECURSE 1
+
+/* PCRE's documented defaults. */
+#define NEWLINE 10
+#define POSIX_MALLOC_THRESHOLD 10
+#define LINK_SIZE 2
+#define PARENS_NEST_LIMIT 250
+#define MATCH_LIMIT 10000000
+#define MATCH_LIMIT_RECURSION MATCH_LIMIT
+#define PCREGREP_BUFSIZE 20480
+#define MAX_NAME_SIZE 32
+#define MAX_NAME_COUNT 10000
+
+#endif

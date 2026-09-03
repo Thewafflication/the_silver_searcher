@@ -102,6 +102,29 @@ or
 
 ### Windows
 
+* WPM (Waughtal Package Manager)
+
+        wpm repo add https://github.com/Thewafflication/the_silver_searcher/releases/latest/download
+        wpm trust add wpm-release.public
+        wpm install ag
+
+  These are the packages this repository builds. They are compiled with
+  [TinyCC](https://github.com/Thewafflication/tcc_package) and link their C
+  library calls to [WCRT](https://github.com/Thewafflication/wcrt), so `ag.exe`
+  is self-contained and needs no Microsoft C runtime. Signed x86, x64 and ARM64
+  packages are published for every release tag.
+
+  The package installs to `%ProgramFiles%\Ag`, sets a machine-level `AG_HOME`
+  variable, and appends the single indirect entry `%AG_HOME%` to the system
+  `Path`. It reads and rewrites the persistent `Path` through the registry as
+  `REG_EXPAND_SZ` rather than using `setx`, which silently truncates a `Path`
+  longer than 1024 characters. Installing twice does not add the entry twice,
+  and `wpm remove` restores the `Path` exactly as it found it. Open a new
+  command prompt after installing.
+
+  Compressed-file search (`-z`) is not available in these packages: zlib and
+  liblzma are not part of this toolchain.
+
 * Win32/64
 
   Unofficial daily builds are [available](https://github.com/k-takata/the_silver_searcher-win32).
@@ -129,6 +152,34 @@ or
 * Cygwin
 
   Run the relevant [`setup-*.exe`](https://cygwin.com/install.html), and select "the\_silver\_searcher" in the "Utils" category.
+
+### Building for Windows with TinyCC and WCRT
+
+This is the build the WPM packages come from. It needs no Visual Studio and no
+MSYS: WPM installs the whole toolchain.
+
+    wpm repo add https://github.com/Thewafflication/tcc_package/releases/latest/download
+    wpm repo add https://github.com/Thewafflication/wcrt/releases/latest/download
+    wpm install tinycc
+    wpm install wcrt --arch any
+
+Then, from a checkout with submodules:
+
+    git submodule update --init --recursive
+    cmake --preset x64-release
+    cmake --build --preset x64-release
+
+Replace `x64` with `x86` or `arm64`. The executable lands in
+`bin/<arch>/Release/`. ARM64 must be built and tested on an ARM64 Windows host.
+
+To build the WPM package as well:
+
+    cmake --build --preset package-x64-release
+
+The build vendors PCRE 8.45 as the `third_party/pcre` submodule and compiles it
+into `ag.exe`, and supplies the pieces WCRT does not carry - pthreads,
+`getopt_long`, the descriptor layer, `realpath`, `gettimeofday` and `popen` -
+from `src/win32/`, so ag's own sources are unchanged from upstream.
 
 ## Building from source
 

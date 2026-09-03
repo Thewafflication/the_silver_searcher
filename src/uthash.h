@@ -65,6 +65,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdint.h>
 #elif defined(__WATCOMC__)
 #include <stdint.h>
+#elif defined(__TINYC__) || defined(__GNUC__)
+/* TinyCC and GCC targets have a real <stdint.h>; typedefs here would clash. */
+#include <stdint.h>
 #else
 typedef unsigned int uint32_t;
 typedef unsigned char uint8_t;

@@ -1,0 +1,302 @@
+name: Build ag WPM packages
+
+# Every Windows build uses TinyCC and links its C library calls to WCRT; there
+# is no Microsoft C compiler build. Branch and pull-request runs produce
+# unsigned debug packages. A v-prefixed tag produces signed release packages
+# for x86, x64 and ARM64 and publishes them, with a WPM repository index, to
+# the GitHub Release for that tag.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: Package flavor
+        required: true
+        default: debug
+        type: choice
+        options: [debug, release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  debug:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') && !(github.event_name == 'workflow_dispatch' && inputs.flavor == 'release') }}
+    name: ${{ matrix.arch }} debug
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: windows-2022
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up WPM, TinyCC and WCRT
+        uses: ./.github/actions/setup-tinycc
+        with:
+          architecture: ${{ matrix.arch }}
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset "${{ matrix.arch }}-debug" `
+            "-DCMAKE_MAKE_PROGRAM=$env:AG_NINJA" `
+            "-DAG_WPM_EXECUTABLE=$env:AG_WPM"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset "${{ matrix.arch }}-debug"
+
+      - name: Record the built version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath 'out/build/${{ matrix.arch }}-debug/generated/version.txt' -Raw).Trim()
+          if (-not $version) { throw 'The build did not record a version.' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Verify the executable is self-contained
+        shell: pwsh
+        run: |
+          # Run ag.exe on its own, away from the build tree and the WCRT SDK, so
+          # a missing sidecar runtime fails here rather than on a user's machine.
+          $probe = Join-Path $env:RUNNER_TEMP 'ag-self-contained'
+          New-Item -ItemType Directory -Force -Path $probe | Out-Null
+          Copy-Item -LiteralPath 'bin/${{ matrix.arch }}/Debug/ag.exe' -Destination $probe
+          & (Join-Path $probe 'ag.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw 'ag.exe requires an unavailable sidecar runtime.' }
+
+      - name: Run the smoke tests
+        shell: pwsh
+        run: |
+          tests/windows-smoke.ps1 `
+            -Executable 'bin/${{ matrix.arch }}/Debug/ag.exe' `
+            -ExpectedVersion '${{ steps.version.outputs.version }}'
+
+      - name: Build the unsigned WPM package
+        shell: pwsh
+        run: cmake --build --preset "package-${{ matrix.arch }}-debug"
+
+      - name: Install, use and remove the package
+        shell: pwsh
+        run: tests/verify-package.ps1 -Architecture '${{ matrix.arch }}' -Flavor debug
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ag-${{ matrix.arch }}-debug
+          path: out/packages/ag-${{ matrix.arch }}-debug-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.flavor == 'release') }}
+    name: ${{ matrix.arch }} release
+    runs-on: ${{ matrix.runner }}
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            runner: windows-2022
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+    env:
+      WPM_PRIVATE_KEY: ${{ secrets.WPM_RELEASE_PRIVATE_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Use an isolated WPM data directory
+        shell: pwsh
+        run: '"WPM_DATA_DIR=$env:RUNNER_TEMP\wpm-data" >> $env:GITHUB_ENV'
+
+      - name: Set up WPM, TinyCC and WCRT
+        uses: ./.github/actions/setup-tinycc
+        with:
+          architecture: ${{ matrix.arch }}
+
+      - name: Materialize the release signing key
+        id: signing
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WPM_PRIVATE_KEY)) {
+            throw 'The release environment must define the WPM_RELEASE_PRIVATE_KEY secret.'
+          }
+          if (-not (Test-Path -LiteralPath 'release_keys/wpm-release.public')) {
+            throw 'release_keys/wpm-release.public is missing. See release_keys/README.md.'
+          }
+          $keyPath = Join-Path $env:RUNNER_TEMP 'ag-release.private'
+          [IO.File]::WriteAllText($keyPath, $env:WPM_PRIVATE_KEY, [Text.UTF8Encoding]::new($false))
+          "key=$keyPath" >> $env:GITHUB_OUTPUT
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset "${{ matrix.arch }}-release" `
+            "-DCMAKE_MAKE_PROGRAM=$env:AG_NINJA" `
+            "-DAG_WPM_EXECUTABLE=$env:AG_WPM" `
+            "-DAG_WPM_SIGNING_KEY=${{ steps.signing.outputs.key }}"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build --preset "${{ matrix.arch }}-release"
+
+      - name: Record the built version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath 'out/build/${{ matrix.arch }}-release/generated/version.txt' -Raw).Trim()
+          if (-not $version) { throw 'The build did not record a version.' }
+          if ('${{ github.event_name }}' -ne 'workflow_dispatch') {
+            $tag = '${{ github.ref_name }}' -replace '^v', ''
+            if ($version -ne $tag) {
+              throw "The tag is $tag but the build produced version $version. A release must be built from a clean checkout of the tag."
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Verify the executable is self-contained
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'ag-self-contained'
+          New-Item -ItemType Directory -Force -Path $probe | Out-Null
+          Copy-Item -LiteralPath 'bin/${{ matrix.arch }}/Release/ag.exe' -Destination $probe
+          & (Join-Path $probe 'ag.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw 'ag.exe requires an unavailable sidecar runtime.' }
+
+      - name: Run the smoke tests
+        shell: pwsh
+        run: |
+          tests/windows-smoke.ps1 `
+            -Executable 'bin/${{ matrix.arch }}/Release/ag.exe' `
+            -ExpectedVersion '${{ steps.version.outputs.version }}'
+
+      - name: Build the signed WPM package
+        shell: pwsh
+        run: cmake --build --preset "package-${{ matrix.arch }}-release"
+
+      - name: Remove the signing key
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'ag-release.private') `
+            -Force -ErrorAction SilentlyContinue
+
+      - name: Verify the package signature
+        shell: pwsh
+        run: |
+          wpm trust add release_keys/wpm-release.public
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packages = @(Get-ChildItem 'out/packages/ag-${{ matrix.arch }}-*.zip' -File)
+          if ($packages.Count -ne 1) { throw "Expected one package, found $($packages.Count)." }
+          wpm verify $packages[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'The signed package did not verify.' }
+
+      - name: Install, use and remove the package
+        shell: pwsh
+        run: tests/verify-package.ps1 -Architecture '${{ matrix.arch }}' -Flavor release
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ag-${{ matrix.arch }}-release
+          path: out/packages/ag-${{ matrix.arch }}-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.flavor == 'release') }}
+    name: Publish the GitHub Release
+    needs: release
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download the release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ag-*-release
+          path: release-assets
+          merge-multiple: true
+
+      - name: Build the WPM repository index
+        id: metadata
+        shell: pwsh
+        run: |
+          $assets = (Resolve-Path release-assets).Path
+          Copy-Item release_keys/wpm-release.public (Join-Path $assets 'wpm-release.public')
+
+          $packages = foreach ($file in Get-ChildItem $assets -Filter 'ag-*.zip' -File) {
+            if ($file.Name -notmatch '^ag-(x86|x64|arm64)-(.+)\.zip$') {
+              throw "Unexpected package filename: $($file.Name)"
+            }
+            [ordered]@{ name = 'ag'; version = $Matches[2]; arch = $Matches[1]; file = $file.Name }
+          }
+          $packages = @($packages)
+          if ($packages.Count -ne 3) { throw "Expected three release packages, found $($packages.Count)." }
+
+          $versions = @($packages | ForEach-Object { $_.version } | Sort-Object -Unique)
+          if ($versions.Count -ne 1) { throw "Inconsistent package versions: $($versions -join ', ')" }
+          $architectures = @($packages | ForEach-Object { $_.arch } | Sort-Object -Unique)
+          if ($architectures.Count -ne 3) { throw "Duplicate architectures: $($architectures -join ', ')" }
+
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { "v$($versions[0])" } else { '${{ github.ref_name }}' }
+          if ($tag -notmatch '^v[0-9][0-9A-Za-z.+-]*$') { throw "Invalid release tag: $tag" }
+
+          foreach ($package in $packages) {
+            $package.url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($package.file)"
+            $package.Remove('file')
+          }
+          [ordered]@{ version = 1; packages = $packages } |
+            ConvertTo-Json -Depth 4 |
+            Set-Content (Join-Path $assets 'index.json') -Encoding utf8NoBOM
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Create the release and upload its assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.metadata.outputs.tag }}'
+          gh release view $tag --repo '${{ github.repository }}' *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo '${{ github.repository }}' `
+              --target '${{ github.sha }}' --generate-notes --title $tag
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $assets = @(Get-ChildItem release-assets -File |
+            Where-Object { $_.Name -eq 'index.json' -or $_.Name -eq 'wpm-release.public' -or $_.Name -like 'ag-*.zip' })
+          gh release upload $tag --repo '${{ github.repository }}' --clobber @($assets.FullName)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

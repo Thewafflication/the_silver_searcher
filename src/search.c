@@ -312,11 +312,20 @@ void search_file(const char *file_full_path) {
     print_init_context();
 
     if (statbuf.st_mode & S_IFIFO) {
+#ifdef _WIN32
+        /* Windows named pipes live in their own namespace rather than in the
+         * directory tree ag walks, so this cannot be reached from a search
+         * path. There is also no fdopen() to wrap a descriptor in a stream. */
+        (void)fp;
+        log_debug("Skipping %s: named pipes are not searched on Windows.", file_full_path);
+        goto cleanup;
+#else
         log_debug("%s is a named pipe. stream searching", file_full_path);
         fp = fdopen(fd, "r");
         matches_count = search_stream(fp, file_full_path);
         fclose(fp);
         goto cleanup;
+#endif
     }
 
     f_len = statbuf.st_size;

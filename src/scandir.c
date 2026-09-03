@@ -38,7 +38,7 @@ int ag_scandir(const char *dirname,
             }
         }
 
-#if defined(__MINGW32__) || defined(__CYGWIN__)
+#if defined(_WIN32) || defined(__CYGWIN__)
         d = malloc(sizeof(struct dirent));
 #else
         d = malloc(entry->d_reclen);
@@ -47,7 +47,7 @@ int ag_scandir(const char *dirname,
         if (d == NULL) {
             goto fail;
         }
-#if defined(__MINGW32__) || defined(__CYGWIN__)
+#if defined(_WIN32) || defined(__CYGWIN__)
         memcpy(d, entry, sizeof(struct dirent));
 #else
         memcpy(d, entry, entry->d_reclen);

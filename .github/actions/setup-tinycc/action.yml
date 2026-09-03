@@ -1,0 +1,117 @@
+name: Set up WPM, TinyCC and WCRT
+description: >
+  Installs the latest WPM release, then the tinycc and wcrt packages from their
+  WPM repositories, and exports the resolved toolchain locations.
+
+inputs:
+  architecture:
+    description: Target architecture (x86, x64 or arm64)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install WPM, TinyCC and WCRT
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+
+        $bootstrap = Join-Path $env:RUNNER_TEMP 'wpm-install.cmd'
+        Invoke-WebRequest -UseBasicParsing `
+          -Uri 'https://github.com/Thewafflication/wpm/releases/latest/download/install.cmd' `
+          -OutFile $bootstrap
+        & $bootstrap
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $wpmDirectory = Join-Path $env:ProgramFiles 'WPM'
+        $wpm = Join-Path $wpmDirectory 'wpm.exe'
+        if (-not (Test-Path -LiteralPath $wpm)) {
+          throw "The latest WPM release was not installed at $wpm."
+        }
+        Add-Content -LiteralPath $env:GITHUB_PATH -Value $wpmDirectory
+
+        # TinyCC.
+        & $wpm repo add 'https://github.com/Thewafflication/tcc_package/releases/latest/download'
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $wpm config set prerelease true --package tinycc
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $tinyccKey = Join-Path $env:RUNNER_TEMP 'tinycc-wpm-release.public'
+        Invoke-WebRequest -UseBasicParsing `
+          -Uri 'https://github.com/Thewafflication/tcc_package/releases/latest/download/wpm-release.public' `
+          -OutFile $tinyccKey
+        & $wpm trust add $tinyccKey
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & $wpm install tinycc
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        # WCRT. It is published as an 'any' package covering every architecture.
+        & $wpm repo add 'https://github.com/Thewafflication/wcrt/releases/latest/download'
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $wcrtKey = Join-Path $env:RUNNER_TEMP 'wcrt-wpm-release.public'
+        Invoke-WebRequest -UseBasicParsing `
+          -Uri 'https://github.com/Thewafflication/wcrt/releases/latest/download/wpm-release.public' `
+          -OutFile $wcrtKey
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath $wcrtKey).Hash -eq
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $tinyccKey).Hash) {
+          Write-Output 'WCRT uses the already trusted TinyCC signing key.'
+        } else {
+          & $wpm trust add $wcrtKey
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+        & $wpm install wcrt --arch any
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        # Resolve the newest usable installation of each.
+        $tccRoot = Get-ChildItem (Join-Path $env:ProgramFiles 'TinyCC') -Directory -ErrorAction Stop |
+          Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'tcc.exe') } |
+          Sort-Object Name -Descending |
+          Select-Object -First 1 -ExpandProperty FullName
+        if (-not $tccRoot) { throw 'The tinycc WPM package did not install a usable toolchain.' }
+
+        $architecture = '${{ inputs.architecture }}'
+        $wcrtRoot = Get-ChildItem (Join-Path $env:ProgramFiles 'WCRT') -Directory -ErrorAction Stop |
+          Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'include\stdio.h')) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName "$architecture\lib\libwcrt.a")) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName "$architecture\lib\wcrt-startup-console.o"))
+          } |
+          Sort-Object Name -Descending |
+          Select-Object -First 1 -ExpandProperty FullName
+        if (-not $wcrtRoot) { throw 'The wcrt WPM package did not install a usable runtime SDK.' }
+
+        # Reject a WCRT built for another architecture before the link fails.
+        $expectedMachine = @{ x86 = 0x014c; x64 = 0x8664; arm64 = 0xaa64 }[$architecture]
+        $wcrtDll = Join-Path $wcrtRoot "$architecture\bin\wcrt.dll"
+        if (Test-Path -LiteralPath $wcrtDll) {
+          $stream = [IO.File]::OpenRead($wcrtDll)
+          $reader = [IO.BinaryReader]::new($stream)
+          try {
+            $stream.Position = 0x3c
+            $stream.Position = $reader.ReadInt32() + 4
+            $actualMachine = $reader.ReadUInt16()
+          } finally {
+            $reader.Dispose()
+            $stream.Dispose()
+          }
+          if ($actualMachine -ne $expectedMachine) {
+            throw "WCRT architecture mismatch for ${architecture}: PE machine 0x$($actualMachine.ToString('x4'))."
+          }
+        }
+
+        $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source
+        if (-not $ninja) {
+          $ninja = Get-ChildItem $env:ProgramFiles -Recurse -Filter ninja.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+        }
+        if (-not $ninja) { throw 'Ninja was not found on the GitHub runner.' }
+
+        & $wpm --version
+        & (Join-Path $tccRoot 'tcc.exe') -v
+        & $ninja --version
+
+        "AG_TCC_ROOT=$tccRoot" | Out-File $env:GITHUB_ENV -Append
+        "AG_WCRT_ROOT=$wcrtRoot" | Out-File $env:GITHUB_ENV -Append
+        "AG_NINJA=$ninja" | Out-File $env:GITHUB_ENV -Append
+        "AG_WPM=$wpm" | Out-File $env:GITHUB_ENV -Append
