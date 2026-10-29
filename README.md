@@ -266,3 +266,22 @@ TextMate users can use Ag with [my fork](https://github.com/ggreer/AckMate) of t
 * [fzf](https://github.com/junegunn/fzf) - A command-line fuzzy finder 
 * [ripgrep](https://github.com/BurntSushi/ripgrep)
 * [Sack](https://github.com/sampson-chen/sack) - A utility that wraps Ack and Ag. It removes a lot of repetition from searching and opening matching files.
+
+
+## Building on Windows
+
+You can build ag from source on a Windows machine with a POSIX‑compatible
+environment (e.g., MSYS2, Cygwin, or WSL). A typical workflow is:
+
+```powershell
+# Open a Unix‑style terminal in MSYS2 or Git Bash
+$ git clone https://github.com/ggreer/the_silver_searcher
+$ cd the_silver_searcher
+$ ./autogen.sh
+$ ./configure
+$ make -j4
+$ make install
+```
+
+If you prefer PowerShell, you can use the `build.sh` script under a Bash
+environment or invoke the steps manually.
