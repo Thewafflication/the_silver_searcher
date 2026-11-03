@@ -1,7 +1,7 @@
 #ifdef _WIN32
 
 #include "print.h"
-#include <io.h>
+// #include <io.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <windows.h>
@@ -47,8 +47,12 @@ int fprintf_w32(FILE *fp, const char *format, ...) {
     // the user just prefers ansi, do plain passthrough.
     BOOL passthrough =
         g_use_ansi ||
+#if !defined(__TINYC__)
         !isatty(fileno(fp)) ||
         INVALID_HANDLE_VALUE == (stdo = (HANDLE)_get_osfhandle(fileno(fp))) ||
+#else
+        0 ||
+#endif
         !GetConsoleScreenBufferInfo(stdo, &csbi);
 
     if (passthrough) {

@@ -203,7 +203,7 @@ elseif(ag_arch STREQUAL "x64")
 else()
   set(ag_tcc_runtime "${ag_tcc_bin_dir}/lib/arm64-win32-libtcc1.a")
 endif()
-target_link_libraries(ag PRIVATE "${ag_tcc_runtime}")
+# target_link_libraries(ag PRIVATE "${ag_tcc_runtime}")
 
 set(ag_output_dir "${CMAKE_SOURCE_DIR}/bin/${ag_arch}/${CMAKE_BUILD_TYPE}")
 set_target_properties(ag PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${ag_output_dir}")
