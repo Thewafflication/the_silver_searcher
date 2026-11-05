@@ -16,9 +16,9 @@ if(NOT WIN32)
     "This CMake build targets Windows only. On Unix, use ./build.sh."
   )
 endif()
-if(NOT CMAKE_C_COMPILER_ID STREQUAL "TinyCC")
+if(NOT (CMAKE_C_COMPILER_ID STREQUAL "TinyCC" OR CMAKE_C_COMPILER_ID STREQUAL "MSVC"))
   message(FATAL_ERROR
-    "ag's Windows build requires TinyCC. Configure through a checked-in preset."
+    "ag's Windows build requires TinyCC or MSVC. Configure through a checked-in preset or set CMAKE_C_COMPILER to cl.exe."
   )
 endif()
 
@@ -47,7 +47,12 @@ elseif(DEFINED ENV{WPM_WCRT_ROOT} AND NOT "$ENV{WPM_WCRT_ROOT}" STREQUAL "")
   # The shared setup-tinycc action publishes the resolved root under this name.
   file(TO_CMAKE_PATH "$ENV{WPM_WCRT_ROOT}" AG_WCRT_ROOT)
 else()
-  file(TO_CMAKE_PATH "$ENV{ProgramFiles}/WCRT" ag_wcrt_install_root)
+  if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
+    # MSVC uses its own C Runtime; WCRT is not needed
+    set(AG_WCRT_ROOT "")
+  else()
+    file(TO_CMAKE_PATH "$ENV{ProgramFiles}/WCRT" ag_wcrt_install_root)
+  endif()
   file(GLOB ag_wcrt_installations LIST_DIRECTORIES TRUE "${ag_wcrt_install_root}/*")
   list(SORT ag_wcrt_installations COMPARE NATURAL ORDER DESCENDING)
   foreach(candidate IN LISTS ag_wcrt_installations)
